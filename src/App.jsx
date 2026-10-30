@@ -28,11 +28,21 @@ const SAMPLE_CODES = [
     language: "javascript",
     code: `import { useState, useEffect } from 'react';
 
-// Qidiruv va inputlarni kechiktirib ishlatish uchun Custom Hook
-export function useDebounce(value, delay = 500) {
+export function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
 
-`,
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}`,
   },
   {
     id: "card",
@@ -40,25 +50,14 @@ export function useDebounce(value, delay = 500) {
     language: "jsx",
     code: `import React from 'react';
 
-export const UserProfileCard = ({ name, role, avatarUrl, onFollow }) => {
+export default function GlassCard({ title, description }) {
   return (
-    <div className="max-w-sm rounded-2xl p-6 bg-slate-900/60 backdrop-blur-xl border border-slate-800 shadow-2xl hover:border-indigo-500/50 transition-all duration-300">
-      <div className="flex items-center gap-4">
-        <img className="w-16 h-16 rounded-full object-cover ring-2 ring-indigo-500/30" src={avatarUrl} alt={name} />
-        <div>
-          <h3 className="text-lg font-bold text-white hover:text-indigo-400 transition-colors">{name}</h3>
-          <p className="text-sm text-slate-400">{role}</p>
-        </div>
-      </div>
-      <button 
-        onClick={onFollow}
-        className="mt-5 w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-medium rounded-xl shadow-lg shadow-indigo-600/20 transition-all"
-      >
-        Kuzatish
-      </button>
+    <div className="p-6 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 shadow-xl text-white">
+      <h3 className="text-lg font-bold mb-2">{title}</h3>
+      <p className="text-sm text-slate-300">{description}</p>
     </div>
   );
-};`,
+}`,
   },
   {
     id: "event",
@@ -66,39 +65,24 @@ export const UserProfileCard = ({ name, role, avatarUrl, onFollow }) => {
     language: "javascript",
     code: `import React, { useState, useEffect } from 'react';
 
-export default function DataFetcher() {
-  const [data, setData] = useState([]);
+export default function UserList() {
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
-    let isMounted = true;
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const res = await fetch('https://jsonplaceholder.typicode.com/posts?_limit=5');
-        if (!res.ok) throw new Error('Tarmoqda xatolik yuz berdi');
-        const json = await res.json();
-        if (isMounted) setData(json);
-      } catch (err) {
-        if (isMounted) setError(err.message);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-
-    fetchData();
-    return () => { isMounted = false; };
+    fetch('https://jsonplaceholder.typicode.com/users')
+      .then(res => res.json())
+      .then(data => {
+        setUsers(data);
+        setLoading(false);
+      });
   }, []);
 
-  if (loading) return <div className="animate-pulse text-indigo-400">Yuklanmoqda...</div>;
-  if (error) return <div className="text-red-400">Xato: {error}</div>;
+  if (loading) return <div>Yuklanmoqda...</div>;
 
   return (
-    <ul className="space-y-2">
-      {data.map(item => (
-        <li key={item.id} className="p-3 bg-slate-800 rounded-lg text-slate-200">{item.title}</li>
-      ))}
+    <ul>
+      {users.map(u => <li key={u.id}>{u.name}</li>)}
     </ul>
   );
 }`,
@@ -116,18 +100,17 @@ export default function App() {
     return localStorage.getItem("gemini_api_key") || import.meta.env.VITE_GEMINI_API_KEY || "";
   });
   const [showApiInput, setShowApiInput] = useState(false);
-  
+
   const handleSaveApiKey = (newKey) => {
     setApiKey(newKey);
     localStorage.setItem("gemini_api_key", newKey);
     setShowApiInput(false);
   };
 
-  // Load analysis history from localStorage on mount
+  // Load analysis history on mount
   useEffect(() => {
     fetch("/api/history")
       .then((res) => {
-        // Agar javob JSON bo'lmasa, xato bermasligi uchun tekshiramiz
         const contentType = res.headers.get("content-type");
         if (contentType && contentType.includes("application/json")) {
           return res.json();
@@ -140,7 +123,7 @@ export default function App() {
             data.map((item) => ({
               id: item.id,
               code: item.code,
-              analysis: item.analysis,
+              analysis: typeof item.analysis === "string" ? JSON.parse(item.analysis) : item.analysis,
               timestamp: new Date(item.created_at).toLocaleTimeString(),
             }))
           );
@@ -151,19 +134,18 @@ export default function App() {
       );
   }, []);
 
-  const saveToHistory = async (code, analysis) => {
+  const saveToHistory = async (codeText, analysisObj) => {
     try {
       await fetch("/api/history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, analysis }),
+        body: JSON.stringify({ code: codeText, analysis: analysisObj }),
       });
 
-      // Ekrandagi ro'yxatni tezda yangilash uchun
       const newEntry = {
         id: Date.now(),
-        code,
-        analysis,
+        code: codeText,
+        analysis: analysisObj,
         timestamp: new Date().toLocaleTimeString(),
       };
       setHistory((prev) => [newEntry, ...prev]);
@@ -179,7 +161,7 @@ export default function App() {
   };
 
   const handleAnalyze = async (codeToAnalyze = code) => {
-    if (!codeToAnalyze.trim()) return;
+    if (!codeToAnalyze || typeof codeToAnalyze !== 'string' || !codeToAnalyze.trim()) return;
     setLoading(true);
 
     const systemPrompt = `Siz Tajribali Senior Frontend Dasturchi va Texnik Murabbiy ekansiz. 
@@ -212,8 +194,7 @@ Javob formati:
 }`;
 
     try {
-      // Use Gemini API fetch if available or fallback to smart standard engine
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${
         apiKey || ""
       }`;
 
@@ -270,20 +251,13 @@ Javob formati:
         if (parsedText) {
           const resultObj = JSON.parse(parsedText);
           setAnalysis(resultObj);
-          saveToHistory({
-            code: codeToAnalyze,
-            date: new Date().toLocaleTimeString(),
-            result: resultObj,
-          });
+          saveToHistory(codeToAnalyze, resultObj);
           setLoading(false);
           return;
         }
       }
     } catch (err) {
-      console.warn(
-        "API Call fallbacked or failed, generating mock analysis",
-        err
-      );
+      console.warn("API Call fallbacked or failed, generating mock analysis", err);
     }
 
     // Smart Local Fallback Analysis Engine
@@ -291,49 +265,35 @@ Javob formati:
       const isHook =
         codeToAnalyze.includes("use") || codeToAnalyze.includes("useEffect");
       const isTailwind = codeToAnalyze.includes("className");
-      const isAsync =
-        codeToAnalyze.includes("async") || codeToAnalyze.includes("fetch");
 
       const mockResult = {
         mohiyati: isHook
-          ? "Ushbu kod React uchun moslashtirilgan mantiqiy reusability (qayta ishlatiluvchanlik) mexanizmini beradi. U holatlarni unmounted xatoliklarsiz, samarali boshqarish va unumdorlikni oshirish uchun ishlatiladi."
+          ? "Ushbu kod React uchun moslashtirilgan mantiqiy reusability (qayta ishlatiluvchanlik) mexanizmini beradi."
           : isTailwind
-          ? "Ushbu kod interfeys komponentining dizayn qatlamini va vizual tuzilishini aniqlaydi. Glassmorphism effekti, moslashuvchanlik va zamonaviy stilizatsiya berilgan."
+          ? "Ushbu kod interfeys komponentining dizayn qatlamini va vizual tuzilishini aniqlaydi."
           : "Ushbu kod ma'lumotlarni masofaviy serverdan olish va ularni interfeysda xavfsiz aks ettirish rejimini ta'minlaydi.",
         ishlashPrinsipi: [
-          "1-bosqich: Komponent yoki funksiya dastlabki xotira maydoni va boshlang'ich qiymat (initial state) bilan retsializatsiya qilinadi.",
-          "2-bosqich: Asinxron hodisa yoki foydalanuvchi ta'siri (event trigger) ishga tushadi.",
-          "3-bosqich: O'zgarishlar React re-render sikliga yuboriladi va faqat kerakli DOM qismlari yangilanadi.",
-          "4-bosqich: Cleanup funksiyasi xotiradan keraksiz taymer va listenerlarni tozalab tashlaydi.",
+          "1-bosqich: Komponent boshlang'ich qiymat bilan retsializatsiya qilinadi.",
+          "2-bosqich: Asinxron hodisa yoki foydalanuvchi ta'siri ishga tushadi.",
+          "3-bosqich: O'zgarishlar React re-render sikliga yuboriladi.",
         ],
         "qo'llanishJoyi": [
           "Real vaqt rejimida ishlaydigan qidiruv va filtr komponentlarida",
-          "Katta dashboardlar, foydalanuvchi profili va statistika kartalarida",
-          "API bilan integratsiya qilingan har qanday zamonaviy Web va Mobile spetsifikatsiyalarda",
-          "Dasturning qayta ishlatiluvchi UI elementlar kutubxonasida (Design System)",
+          "Katta dashboardlar va statistika kartalarida",
         ],
         harakatlarVaNatija: {
-          hodisalar:
-            "Foydalanuvchi tugmani bosganda (onClick), matn kiritganda (onChange) yoki komponent ekranga yuklanganda (mount).",
-          stateOqibatlari:
-            "Eski holat (previous state) yangisiga almashtiriladi, nojo'ya ta'sirlar (side effects) bajariladi hamda qayta hisoblashlar ro'y beradi.",
-          uiNatijasi:
-            "Ekran elementlari darhol jonlanadi: yuklanish indikatorlari (spinners), yangilangan kontent va silliq CSS o'tishlari (transitions) namoyon bo'ladi.",
+          hodisalar: "Foydalanuvchi tugmani bosganda yoki matn kiritganda.",
+          stateOqibatlari: "Eski holat yangisiga almashtiriladi.",
+          uiNatijasi: "Ekran elementlari darhol yangilanadi.",
         },
         tavsiyalar: [
-          "React.memo yoki useMemo yordamida ortiqcha re-renderlarning oldini oling.",
-          "TypeScript yordamida props va callbacklar uchun qat'iy tiplashtirish (Interface) kiriting.",
-          "A11y (Accessibility) talablariga moslash uchun aria-label attributlaridan foydalaning.",
-          "Xatoliklarni tutish uchun try/catch va Error Boundary tuzilmasini mustahkamlang.",
+          "React.memo yordamida ortiqcha re-renderlarning oldini oling.",
+          "TypeScript yordamida tiplashtirish kiriting.",
         ],
       };
 
       setAnalysis(mockResult);
-      saveToHistory({
-        code: codeToAnalyze,
-        date: new Date().toLocaleTimeString(),
-        result: mockResult,
-      });
+      saveToHistory(codeToAnalyze, mockResult);
       setLoading(false);
     }, 800);
   };
@@ -377,13 +337,13 @@ Javob formati:
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center gap-3">
               <input
                 type="password"
-                placeholder="Google Gemini API Key-ni kiriting (Ixtiyoriy)..."
+                placeholder="Google Gemini API Key-ni kiriting..."
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 className="w-full sm:flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
               />
               <button
-                onClick={() => setShowApiInput(false)}
+                onClick={() => handleSaveApiKey(apiKey)}
                 className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-medium transition"
               >
                 Saqlash
@@ -397,57 +357,36 @@ Javob formati:
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Code Editor & Inputs (5 Cols) */}
         <div className="lg:col-span-5 flex flex-col space-y-4">
-          {/* Editor Header */}
           <div className="bg-slate-900 rounded-2xl border border-slate-800 p-4 flex flex-col space-y-3 shadow-xl">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                 <FileCode2 className="w-4 h-4 text-indigo-400" />
                 Kod Muharriri
               </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCopyCode}
-                  className="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-800 border border-slate-700 transition"
-                  title="Kodni nusxalash"
-                >
-                  {copied ? (
-                    <Check className="w-4 h-4 text-emerald-400" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
+              <button
+                onClick={handleCopyCode}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-800 border border-slate-700 transition"
+                title="Kodni nusxalash"
+              >
+                {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              </button>
             </div>
 
-            {/* Code Input Area */}
-            <div className="relative">
-              <textarea
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="Bu yerga kodingizni joylashtiring (JSX, JS, CSS, Tailwind)..."
-                rows={14}
-                className="w-full bg-slate-950 text-slate-200 font-mono text-xs sm:text-sm p-4 rounded-xl border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none resize-none leading-relaxed"
-              />
-            </div>
+            <textarea
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="Bu yerga kodingizni joylashtiring..."
+              rows={14}
+              className="w-full bg-slate-950 text-slate-200 font-mono text-xs sm:text-sm p-4 rounded-xl border border-slate-800 focus:border-indigo-500 focus:outline-none resize-none leading-relaxed"
+            />
 
-            {/* Quick Sample Buttons */}
             <div>
-              <p className="text-xs text-slate-400 mb-2">
-                Tayyor koda misollar:
-              </p>
+              <p className="text-xs text-slate-400 mb-2">Tayyor koda misollar:</p>
               <div className="flex flex-wrap gap-2">
                 {SAMPLE_CODES.map((sample) => (
                   <button
                     key={sample.id}
-                    onClick={() => {
-                      setCode(item.code);
-                      // item.analysis obyekt bo'lib kelgani uchun uni xavfsiz qabul qilamiz
-                      setAnalysis(
-                        typeof item.analysis === "string"
-                          ? JSON.parse(item.analysis)
-                          : item.analysis
-                      );
-                    }}
+                    onClick={() => setCode(sample.code)}
                     className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition"
                   >
                     {sample.title}
@@ -456,7 +395,6 @@ Javob formati:
               </div>
             </div>
 
-            {/* Analyze Trigger Button */}
             <button
               onClick={() => handleAnalyze()}
               disabled={loading || typeof code !== "string" || !code.trim()}
@@ -487,12 +425,10 @@ Javob formati:
                 <button
                   onClick={async () => {
                     try {
-                      // Backend/bazadagi tarixni o'chirish uchun so'rov yuboramiz
                       await fetch("/api/history", { method: "DELETE" });
                     } catch (err) {
                       console.error("Bazadan o'chirishda xatolik:", err);
                     }
-                    // Ekranni tozalaymiz
                     setHistory([]);
                     localStorage.removeItem("dev_code_history");
                   }}
@@ -507,8 +443,14 @@ Javob formati:
                   <div
                     key={idx}
                     onClick={() => {
-                      setCode(item.code);
-                      setAnalysis(item.analysis); // Bu yerda item.result o'rniga item.analysis bo'lishi kerak, chunki api/history.js da "analysis" deb yozgandik
+                      if (typeof item.code === "string") {
+                        setCode(item.code);
+                      }
+                      setAnalysis(
+                        typeof item.analysis === "string"
+                          ? JSON.parse(item.analysis)
+                          : item.analysis
+                      );
                     }}
                     className="p-2.5 bg-slate-950 hover:bg-slate-800/80 rounded-xl border border-slate-800 cursor-pointer transition flex items-center justify-between group"
                   >
@@ -516,7 +458,7 @@ Javob formati:
                       <p className="text-xs font-mono text-slate-300 truncate">
                         {typeof item.code === "string"
                           ? item.code.split("\n")[0]
-                          : String(item.code || "")}
+                          : "Kod tahlili"}
                       </p>
                       <span className="text-[10px] text-slate-500">
                         {item.timestamp || item.date}
@@ -530,11 +472,9 @@ Javob formati:
           )}
         </div>
 
-        {/* Right Column: Analysis Output Tabs & Insights (7 Cols) */}
+        {/* Right Column: Analysis Output Tabs (7 Cols) */}
         <div className="lg:col-span-7 flex flex-col space-y-4">
-          {/* Main Results Container */}
           <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 shadow-xl flex-1 flex flex-col">
-            {/* Header / Tabs */}
             <div className="border-b border-slate-800 pb-4 mb-6">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
@@ -581,7 +521,6 @@ Javob formati:
               </div>
             </div>
 
-            {/* Analysis Content View */}
             {loading ? (
               <div className="flex-1 flex flex-col items-center justify-center py-12 text-center">
                 <div className="relative">
@@ -591,131 +530,71 @@ Javob formati:
                 <h3 className="mt-4 text-sm font-semibold text-slate-200">
                   Kod tuzilishi tahlil qilinmoqda...
                 </h3>
-                <p className="text-xs text-slate-400 max-w-xs mt-1">
-                  Ishlash prinsipi va UI ga ta'sirlari hisoblab chiqilmoqda.
-                </p>
               </div>
             ) : analysis ? (
               <div className="flex-1 space-y-4">
-                {/* TAB 1: MOHIYATI */}
                 {activeTab === "mohiyati" && (
-                  <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-3 animate-fadeIn">
-                    <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
-                      <BookOpen className="w-4 h-4" />
-                      Kodning Asosiy Mohiyati va Maqsadi
-                    </div>
+                  <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
                     <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-line">
                       {analysis.mohiyati}
                     </p>
                   </div>
                 )}
 
-                {/* TAB 2: ISHLASH PRINSIPI */}
                 {activeTab === "prinsip" && (
-                  <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-4 animate-fadeIn">
-                    <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
-                      <Cpu className="w-4 h-4" />
-                      Kodni Ishlash Ketma-ketligi (Execution Steps)
-                    </div>
+                  <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-4">
                     <div className="space-y-2.5">
                       {analysis.ishlashPrinsipi?.map((step, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-start gap-3 p-3 bg-slate-900 rounded-lg border border-slate-800/80"
-                        >
-                          <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-600/20 text-indigo-400 font-bold text-xs flex items-center justify-center border border-indigo-500/30">
+                        <div key={idx} className="flex items-start gap-3 p-3 bg-slate-900 rounded-lg border border-slate-800/80">
+                          <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-600/20 text-indigo-400 font-bold text-xs flex items-center justify-center">
                             {idx + 1}
                           </span>
-                          <p className="text-xs sm:text-sm text-slate-300 leading-normal">
-                            {step}
-                          </p>
+                          <p className="text-xs sm:text-sm text-slate-300">{step}</p>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {/* TAB 3: QAYERDA FOYDALANISH */}
                 {activeTab === "qollash" && (
-                  <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-4 animate-fadeIn">
-                    <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
-                      <Target className="w-4 h-4" />
-                      Ushbu Kodni Qaysi Joylarda Qo'llash Mumkin?
-                    </div>
+                  <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {analysis["qo'llanishJoyi"]?.map((useCase, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex items-start gap-2.5"
-                        >
-                          <div className="p-1.5 rounded-md bg-emerald-500/10 text-emerald-400 mt-0.5">
-                            <Layers className="w-4 h-4" />
-                          </div>
-                          <p className="text-xs sm:text-sm text-slate-300 font-medium">
-                            {useCase}
-                          </p>
+                        <div key={idx} className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex items-start gap-2.5">
+                          <Layers className="w-4 h-4 text-emerald-400 mt-0.5" />
+                          <p className="text-xs sm:text-sm text-slate-300 font-medium">{useCase}</p>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {/* TAB 4: HARAKATLAR VA UI OQIBATLAR */}
                 {activeTab === "harakatlar" && (
-                  <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-4 animate-fadeIn">
-                    <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
-                      <Zap className="w-4 h-4" />
-                      Foydalanuvchi Harakatlari va UI Oqibatlari
-                    </div>
-
+                  <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-4">
                     <div className="space-y-3">
                       <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800">
-                        <span className="text-xs font-semibold text-amber-400 block mb-1">
-                          ⚡ Trigger / Hodisalar:
-                        </span>
-                        <p className="text-xs sm:text-sm text-slate-300">
-                          {analysis.harakatlarVaNatija?.hodisalar}
-                        </p>
+                        <span className="text-xs font-semibold text-amber-400 block mb-1">⚡ Trigger / Hodisalar:</span>
+                        <p className="text-xs sm:text-sm text-slate-300">{analysis.harakatlarVaNatija?.hodisalar}</p>
                       </div>
-
                       <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800">
-                        <span className="text-xs font-semibold text-indigo-400 block mb-1">
-                          🔄 State va Mantiqiy O'zgarishlar:
-                        </span>
-                        <p className="text-xs sm:text-sm text-slate-300">
-                          {analysis.harakatlarVaNatija?.stateOqibatlari}
-                        </p>
+                        <span className="text-xs font-semibold text-indigo-400 block mb-1">🔄 State o'zgarishlari:</span>
+                        <p className="text-xs sm:text-sm text-slate-300">{analysis.harakatlarVaNatija?.stateOqibatlari}</p>
                       </div>
-
                       <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800">
-                        <span className="text-xs font-semibold text-emerald-400 block mb-1">
-                          🖥️ Ekrandagi Vizual Natija (UI Changes):
-                        </span>
-                        <p className="text-xs sm:text-sm text-slate-300">
-                          {analysis.harakatlarVaNatija?.uiNatijasi}
-                        </p>
+                        <span className="text-xs font-semibold text-emerald-400 block mb-1">🖥️ UI Natijasi:</span>
+                        <p className="text-xs sm:text-sm text-slate-300">{analysis.harakatlarVaNatija?.uiNatijasi}</p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* TAB 5: OPTIMIZATSIYA VA TAVSIYALAR */}
                 {activeTab === "tavsiya" && (
-                  <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-4 animate-fadeIn">
-                    <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
-                      <Lightbulb className="w-4 h-4" />
-                      Senior Dasturchidan Optimizatsiya va Maslahatlar
-                    </div>
+                  <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-4">
                     <ul className="space-y-2.5">
                       {analysis.tavsiyalar?.map((item, idx) => (
-                        <li
-                          key={idx}
-                          className="p-3 bg-slate-900 rounded-xl border border-slate-800/80 flex items-start gap-3"
-                        >
+                        <li key={idx} className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex items-start gap-3">
                           <span className="text-amber-400 mt-0.5">✦</span>
-                          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                            {item}
-                          </p>
+                          <p className="text-xs sm:text-sm text-slate-300">{item}</p>
                         </li>
                       ))}
                     </ul>
@@ -725,9 +604,7 @@ Javob formati:
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-500">
                 <Code2 className="w-12 h-12 stroke-1 mb-2 text-slate-600" />
-                <p className="text-sm">
-                  Kodni kiritib "Kodni Tahlil Qilish" tugmasini bosing
-                </p>
+                <p className="text-sm">Kodni kiritib "Kodni Tahlil Qilish" tugmasini bosing</p>
               </div>
             )}
           </div>
