@@ -112,12 +112,20 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("mohiyati");
   const [copied, setCopied] = useState(false);
   const [history, setHistory] = useState([]);
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState(() => {
+    return localStorage.getItem("gemini_api_key") || import.meta.env.VITE_GEMINI_API_KEY || "";
+  });
   const [showApiInput, setShowApiInput] = useState(false);
+  
+  const handleSaveApiKey = (newKey) => {
+    setApiKey(newKey);
+    localStorage.setItem("gemini_api_key", newKey);
+    setShowApiInput(false);
+  };
 
   // Load analysis history from localStorage on mount
   useEffect(() => {
-    fetch('/api/history')
+    fetch("/api/history")
       .then((res) => {
         // Agar javob JSON bo'lmasa, xato bermasligi uchun tekshiramiz
         const contentType = res.headers.get("content-type");
@@ -128,15 +136,19 @@ export default function App() {
       })
       .then((data) => {
         if (Array.isArray(data)) {
-          setHistory(data.map(item => ({
-            id: item.id,
-            code: item.code,
-            analysis: item.analysis,
-            timestamp: new Date(item.created_at).toLocaleTimeString()
-          })));
+          setHistory(
+            data.map((item) => ({
+              id: item.id,
+              code: item.code,
+              analysis: item.analysis,
+              timestamp: new Date(item.created_at).toLocaleTimeString(),
+            }))
+          );
         }
       })
-      .catch((err) => console.log("Lokal rejimda API ishlamasligi mumkin:", err));
+      .catch((err) =>
+        console.log("Lokal rejimda API ishlamasligi mumkin:", err)
+      );
   }, []);
 
   const saveToHistory = async (code, analysis) => {
@@ -431,8 +443,8 @@ Javob formati:
                       setCode(item.code);
                       // item.analysis obyekt bo'lib kelgani uchun uni xavfsiz qabul qilamiz
                       setAnalysis(
-                        typeof item.analysis === 'string' 
-                          ? JSON.parse(item.analysis) 
+                        typeof item.analysis === "string"
+                          ? JSON.parse(item.analysis)
                           : item.analysis
                       );
                     }}
@@ -447,7 +459,7 @@ Javob formati:
             {/* Analyze Trigger Button */}
             <button
               onClick={() => handleAnalyze()}
-              disabled={loading || typeof code !== 'string' || !code.trim()}
+              disabled={loading || typeof code !== "string" || !code.trim()}
               className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
             >
               {loading ? (
@@ -473,7 +485,14 @@ Javob formati:
                   Oxirgi Tahlillar Tarixi
                 </span>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
+                    try {
+                      // Backend/bazadagi tarixni o'chirish uchun so'rov yuboramiz
+                      await fetch("/api/history", { method: "DELETE" });
+                    } catch (err) {
+                      console.error("Bazadan o'chirishda xatolik:", err);
+                    }
+                    // Ekranni tozalaymiz
                     setHistory([]);
                     localStorage.removeItem("dev_code_history");
                   }}
