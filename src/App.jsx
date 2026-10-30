@@ -32,18 +32,7 @@ const SAMPLE_CODES = [
 export function useDebounce(value, delay = 500) {
   const [debouncedValue, setDebouncedValue] = useState(value);
 
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}`
+`
   },
   {
     id: 'card',
@@ -128,22 +117,46 @@ export default function App() {
 
   // Load analysis history from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem('dev_code_history');
-    if (saved) {
-      try {
-        setHistory(JSON.parse(saved));
-      } catch (e) {
-        console.error("History parse error", e);
-      }
+    // Tarixni bazadan tortib olish
+    fetch('/api/history')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setHistory(data.map(item => ({
+            id: item.id,
+            code: item.code,
+            analysis: item.analysis,
+            timestamp: new Date(item.created_at).toLocaleTimeString()
+          })));
+        }
+      })
+      .catch((err) => console.error("Xatolik:", err));
+
+    // Sahifa ochilganda avtomatik birinchi namunani tahlil qilish
+    if (SAMPLE_CODES && SAMPLE_CODES.length > 0) {
+      handleAnalyze(SAMPLE_CODES[0].code);
     }
-    // Auto analyze initial code
-    handleAnalyze(SAMPLE_CODES[0].code);
   }, []);
 
-  const saveToHistory = (item) => {
-    const newHistory = [item, ...history.filter(h => h.code !== item.code)].slice(0, 10);
-    setHistory(newHistory);
-    localStorage.setItem('dev_code_history', JSON.stringify(newHistory));
+  const saveToHistory = async (code, analysis) => {
+    try {
+      await fetch('/api/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, analysis }),
+      });
+      
+      // Ekrandagi ro'yxatni tezda yangilash uchun
+      const newEntry = {
+        id: Date.now(),
+        code,
+        analysis,
+        timestamp: new Date().toLocaleTimeString(),
+      };
+      setHistory((prev) => [newEntry, ...prev]);
+    } catch (err) {
+      console.error("Saqlashda xatolik:", err);
+    }
   };
 
   const handleCopyCode = () => {
