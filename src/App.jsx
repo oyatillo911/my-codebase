@@ -117,27 +117,26 @@ export default function App() {
 
   // Load analysis history from localStorage on mount
   useEffect(() => {
-    // Tarixni bazadan tortib olish
-    fetch("/api/history")
-      .then((res) => res.json())
+    fetch('/api/history')
+      .then((res) => {
+        // Agar javob JSON bo'lmasa, xato bermasligi uchun tekshiramiz
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          return res.json();
+        }
+        return [];
+      })
       .then((data) => {
         if (Array.isArray(data)) {
-          setHistory(
-            data.map((item) => ({
-              id: item.id,
-              code: item.code,
-              analysis: item.analysis,
-              timestamp: new Date(item.created_at).toLocaleTimeString(),
-            }))
-          );
+          setHistory(data.map(item => ({
+            id: item.id,
+            code: item.code,
+            analysis: item.analysis,
+            timestamp: new Date(item.created_at).toLocaleTimeString()
+          })));
         }
       })
-      .catch((err) => console.error("Xatolik:", err));
-
-    // Sahifa ochilganda avtomatik birinchi namunani tahlil qilish
-    if (SAMPLE_CODES && SAMPLE_CODES.length > 0) {
-      handleAnalyze(SAMPLE_CODES[0].code);
-    }
+      .catch((err) => console.log("Lokal rejimda API ishlamasligi mumkin:", err));
   }, []);
 
   const saveToHistory = async (code, analysis) => {
@@ -429,8 +428,13 @@ Javob formati:
                   <button
                     key={sample.id}
                     onClick={() => {
-                      setCode(sample.code);
-                      handleAnalyze(sample.code);
+                      setCode(item.code);
+                      // item.analysis obyekt bo'lib kelgani uchun uni xavfsiz qabul qilamiz
+                      setAnalysis(
+                        typeof item.analysis === 'string' 
+                          ? JSON.parse(item.analysis) 
+                          : item.analysis
+                      );
                     }}
                     className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition"
                   >
@@ -443,7 +447,7 @@ Javob formati:
             {/* Analyze Trigger Button */}
             <button
               onClick={() => handleAnalyze()}
-              disabled={loading || !code.trim()}
+              disabled={loading || typeof code !== 'string' || !code.trim()}
               className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
             >
               {loading ? (
